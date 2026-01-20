@@ -40,6 +40,7 @@ const imageSchema = z.object({
     .number()
     .int()
     .positive()
+    .optional()
 }).refine(
   (img) => {
     const actualSize = getBase64DecodedSize(img.base64);
