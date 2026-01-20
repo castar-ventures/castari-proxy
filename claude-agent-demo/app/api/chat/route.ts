@@ -18,6 +18,16 @@ const MAX_TOTAL_IMAGE_BYTES = 15 * 1024 * 1024; // 15MB combined
 const THINKING_MIN_BUDGET = 1_024;
 const THINKING_MAX_BUDGET = 64_000;
 
+/**
+ * Calculate the actual decoded size of a base64 string.
+ * Base64 encodes 3 bytes into 4 characters, so decoded size ≈ length * 3/4.
+ * Padding characters (=) don't contribute to decoded bytes.
+ */
+function getBase64DecodedSize(base64: string): number {
+  const padding = (base64.match(/=+$/) || [''])[0].length;
+  return Math.floor((base64.length * 3) / 4) - padding;
+}
+
 const imageSchema = z.object({
   id: z.string().min(1),
   mimeType: z
@@ -30,8 +40,16 @@ const imageSchema = z.object({
     .number()
     .int()
     .positive()
-    .max(MAX_IMAGE_BYTES, `Images must be ${MAX_IMAGE_BYTES / (1024 * 1024)}MB or smaller`)
-});
+    .optional()
+}).refine(
+  (img) => {
+    const actualSize = getBase64DecodedSize(img.base64);
+    return actualSize <= MAX_IMAGE_BYTES;
+  },
+  {
+    message: `Images must be ${MAX_IMAGE_BYTES / (1024 * 1024)}MB or smaller`,
+  }
+);
 
 const thinkingSchema = z.object({
   enabled: z.boolean(),
@@ -65,7 +83,8 @@ export async function POST(req: NextRequest) {
   const images = payload.body.images ?? [];
   const mode: ToolMode = payload.body.toolMode ?? 'safe';
   const trimmed = message.trim();
-  const totalImageBytes = images.reduce((sum, img) => sum + img.size, 0);
+  // Calculate actual payload size server-side instead of trusting client-reported size
+  const totalImageBytes = images.reduce((sum, img) => sum + getBase64DecodedSize(img.base64), 0);
   const thinkingConfig = thinking?.enabled ? thinking : undefined;
 
   if (!trimmed && images.length === 0) {
