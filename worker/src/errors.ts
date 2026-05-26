@@ -34,9 +34,13 @@ export function rateLimitError(message: string, details?: Record<string, unknown
   return new CastariError(429, 'rate_limit_error', message, { retryable: true, details });
 }
 
-export function upstreamError(status: number, message: string): CastariError {
+export function upstreamError(
+  status: number,
+  message: string,
+  details?: Record<string, unknown>,
+): CastariError {
   const type = status >= 500 ? 'api_error' : 'invalid_request_error';
-  return new CastariError(status, type, message, { retryable: status >= 500 });
+  return new CastariError(status, type, message, { retryable: status >= 500, details });
 }
 
 export function errorResponse(error: unknown): Response {

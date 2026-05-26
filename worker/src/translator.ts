@@ -2,6 +2,8 @@ import {
   AnthropicContent,
   AnthropicContentImage,
   AnthropicContentText,
+  AnthropicContentToolResult,
+  AnthropicContentToolUse,
   AnthropicMessage,
   AnthropicRequest,
   AnthropicResponse,
@@ -78,8 +80,8 @@ function convertMessage(message: AnthropicMessage): OpenRouterMessage[] {
     ? message.content
     : [{ type: 'text', text: message.content } as AnthropicContentText];
   const textSegments: AnthropicContent[] = [];
-  const toolResults: AnthropicContent[] = [];
-  const toolUses: AnthropicContent[] = [];
+  const toolResults: AnthropicContentToolResult[] = [];
+  const toolUses: AnthropicContentToolUse[] = [];
 
   for (const segment of segments) {
     if (!segment || typeof segment !== 'object') continue;

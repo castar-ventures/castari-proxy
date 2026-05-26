@@ -1,6 +1,11 @@
 import { resolveConfig, Env } from './config';
-import { errorResponse, authenticationError, invalidRequest } from './errors';
-import { normalizeCastariHeaders, readJsonBody } from './utils';
+import {
+  errorResponse,
+  authenticationError,
+  invalidRequest,
+  upstreamError,
+} from './errors';
+import { normalizeCastariHeaders, readJsonBody, isJsonMime } from './utils';
 import { categorizeServerTools, detectServerTools, resolveProvider } from './provider';
 import { buildOpenRouterRequest, mapOpenRouterResponse } from './translator';
 import { streamOpenRouterToAnthropic } from './stream';
@@ -9,6 +14,7 @@ import {
   AnthropicResponse,
   CastariMetadata,
   CastariReasoningConfig,
+  OpenRouterResponse,
   WebSearchOptions,
   WorkerConfig,
 } from './types';
@@ -59,10 +65,10 @@ export default {
       }
 
       if (provider === 'anthropic') {
-        return proxyAnthropic(body, request, authHeader.value, config.anthropicBaseUrl);
+        return await proxyAnthropic(body, request, authHeader.value, config.anthropicBaseUrl);
       }
 
-      return handleOpenRouter({
+      return await handleOpenRouter({
         body,
         wireModel,
         originalModel,
@@ -153,16 +159,23 @@ async function handleOpenRouter(ctx: OpenRouterContext): Promise<Response> {
 
   if (ctx.body.stream) {
     if (!upstreamResp.ok) {
-      const payload = await upstreamResp.text();
-      throw invalidRequest('OpenRouter streaming error', { status: upstreamResp.status, body: payload });
+      throw upstreamError(
+        upstreamResp.status,
+        'OpenRouter streaming error',
+        await readUpstreamErrorDetails(upstreamResp),
+      );
     }
     return streamOpenRouterToAnthropic(upstreamResp, { originalModel: ctx.originalModel });
   }
 
-  const json = await upstreamResp.json();
   if (!upstreamResp.ok) {
-    throw invalidRequest('OpenRouter error', { status: upstreamResp.status, body: json });
+    throw upstreamError(
+      upstreamResp.status,
+      'OpenRouter error',
+      await readUpstreamErrorDetails(upstreamResp),
+    );
   }
+  const json = (await upstreamResp.json()) as OpenRouterResponse;
   const responseBody: AnthropicResponse = mapOpenRouterResponse(json, ctx.originalModel);
   return new Response(JSON.stringify(responseBody), {
     status: 200,
@@ -171,4 +184,26 @@ async function handleOpenRouter(ctx: OpenRouterContext): Promise<Response> {
       'cache-control': 'no-store',
     },
   });
+}
+
+async function readUpstreamErrorDetails(
+  response: Response,
+): Promise<Record<string, unknown>> {
+  const text = await response.text();
+  let body: unknown = text;
+  if (text && isJsonMime(response.headers.get('content-type'))) {
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = text;
+    }
+  }
+
+  const details: Record<string, unknown> = {
+    status: response.status,
+    body,
+  };
+  const retryAfter = response.headers.get('retry-after');
+  if (retryAfter) details.retryAfter = retryAfter;
+  return details;
 }
